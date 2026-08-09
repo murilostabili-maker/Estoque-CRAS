@@ -13,8 +13,18 @@ db.init_db()
 # ---------------------- Autenticação ----------------------
 
 def tela_login():
-    st.title("📦 Sistema de Controle de Estoque")
-    st.caption("Faça login para continuar")
+    col_logo1, col_logo2, col_logo3 = st.columns([1, 1, 1])
+    with col_logo2:
+        st.image("assets/logo_cras.jpg", width=150)
+
+    st.markdown(
+        "<h1 style='text-align:center;'>📦 Sistema de Controle de Estoque</h1>",
+        unsafe_allow_html=True
+    )
+    st.markdown(
+        "<p style='text-align:center; color:gray;'>Faça login para continuar</p>",
+        unsafe_allow_html=True
+    )
 
     col1, col2 = st.columns([1, 2])
     with col1:
@@ -39,6 +49,15 @@ def tela_login():
             "- Consulta: `consulta` / `consulta123`\n\n"
             "Altere essas senhas em **Configurações** após o primeiro acesso."
         )
+
+    st.markdown("<hr style='margin-top:2rem;'>", unsafe_allow_html=True)
+    col_a, col_b, col_c = st.columns([2, 1, 2])
+    with col_b:
+        st.markdown(
+            "<p style='text-align:center; color:gray; font-size:0.8rem;'>Desenvolvido por</p>",
+            unsafe_allow_html=True
+        )
+        st.image("assets/logo_gesp.png", width=70)
 
 
 def logout_button():
@@ -617,10 +636,26 @@ def main():
     paginas = PAGINAS_POR_PAPEL[papel]
 
     with st.sidebar:
-        st.title("📦 Estoque CRAS")
+        col_a, col_b, col_c = st.columns([1, 2, 1])
+        with col_b:
+            st.image("assets/logo_cras.jpg", width=110)
+        st.markdown(
+            "<p style='text-align:center; font-weight:600; margin-top:0.3rem;'>Estoque CRAS</p>",
+            unsafe_allow_html=True
+        )
         pagina = st.radio("Navegação", paginas,
                            format_func=lambda p: f"{ICONES.get(p, '')}  {p}")
     logout_button()
+
+    with st.sidebar:
+        st.markdown("<div style='margin-top:2rem;'></div>", unsafe_allow_html=True)
+        col_x, col_y, col_z = st.columns([1, 1, 1])
+        with col_y:
+            st.markdown(
+                "<p style='text-align:center; color:gray; font-size:0.7rem; margin-bottom:0.2rem;'>Desenvolvido por</p>",
+                unsafe_allow_html=True
+            )
+            st.image("assets/logo_gesp.png", width=55)
 
     if pagina == "Dashboard":
         pagina_dashboard()
