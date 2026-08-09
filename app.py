@@ -576,7 +576,7 @@ def pagina_configuracoes():
     st.header("⚙️ Configurações")
     usuario = st.session_state["usuario"]
 
-    tab1, tab2, tab3 = st.tabs(["Usuários e acesso", "Minha conta", "🔧 Diagnóstico de logos"])
+    tab1, tab2, tab3 = st.tabs(["Usuários e acesso", "Minha conta"])
 
     with tab1:
         if usuario["papel"] != "Administrador":
@@ -690,7 +690,7 @@ def main():
                 "<p style='text-align:center; color:gray; font-size:0.7rem; margin-bottom:0.2rem;'>Desenvolvido por</p>",
                 unsafe_allow_html=True
             )
-            sub_esq, sub_dir = st.columns([1, 10])
+            sub_esq, sub_dir = st.columns([1, 12])
             with sub_dir:
                 logo(LOGO_GESP, width=55)
 
