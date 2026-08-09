@@ -90,7 +90,7 @@ def tela_login():
                 "<p style='text-align:center; color:gray; font-size:0.8rem;'>Desenvolvido por</p>",
                 unsafe_allow_html=True
             )
-            sub_esq, sub_dir = st.columns([1, 2])
+            sub_esq, sub_dir = st.columns([1, 3])
             with sub_dir:
                 logo(LOGO_GESP, width=70)
 
