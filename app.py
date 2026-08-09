@@ -92,7 +92,7 @@ def tela_login():
             )
             sub_esq, sub_dir = st.columns([1, 1.3])
             with sub_dir:
-            logo(LOGO_GESP, width=70)
+                logo(LOGO_GESP, width=70)
 
 
 def logout_button():
