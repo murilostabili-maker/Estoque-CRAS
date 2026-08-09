@@ -54,7 +54,7 @@ def tela_login():
         logo(LOGO_CRAS, width=150)
 
     st.markdown(
-        "<h1 style='text-align:center;'>📦 Sistema de Controle de Estoque</h1>",
+        "<h1 style='text-align:center;'>Sistema de Controle de Estoque</h1>",
         unsafe_allow_html=True
     )
     st.markdown(
