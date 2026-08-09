@@ -641,53 +641,6 @@ def pagina_configuracoes():
             db.redefinir_senha(usuario["id"], nova)
             st.success("Senha alterada com sucesso!")
 
-    with tab3:
-        st.caption(
-            "Use esta aba para conferir por que as logos aparecem ou não aparecem no app "
-            "(útil depois de publicar no Streamlit Cloud)."
-        )
-        st.write(f"**Pasta de assets esperada:** `{ASSETS_DIR}`")
-        st.write(f"**Pasta raiz do projeto (busca alternativa):** `{BASE_DIR}`")
-        if os.path.isdir(ASSETS_DIR):
-            st.success("✅ A pasta 'assets' foi encontrada no servidor.")
-            arquivos = sorted(os.listdir(ASSETS_DIR))
-            if arquivos:
-                st.write("**Arquivos encontrados dentro de `assets/`:**")
-                for a in arquivos:
-                    st.write(f"- `{a}`")
-            else:
-                st.warning("A pasta existe, mas está vazia — nenhum arquivo dentro dela.")
-        else:
-            st.info(
-                "ℹ️ A pasta 'assets' não existe no servidor — sem problema, o app também procura "
-                "as logos direto na raiz do projeto (mostrado abaixo)."
-            )
-            arquivos_raiz = sorted(f for f in os.listdir(BASE_DIR)
-                                    if f.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")))
-            if arquivos_raiz:
-                st.write("**Imagens encontradas na raiz do projeto:**")
-                for a in arquivos_raiz:
-                    st.write(f"- `{a}`")
-            else:
-                st.error("Nenhuma imagem encontrada na raiz do projeto também.")
-
-        st.markdown("---")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.write("**Logo do CRAS:**")
-            if LOGO_CRAS:
-                st.success(f"Encontrada: `{os.path.basename(LOGO_CRAS)}`")
-                st.image(LOGO_CRAS, width=100)
-            else:
-                st.error("Não encontrada (nenhum arquivo com 'cras' no nome dentro de assets/).")
-        with col2:
-            st.write("**Logo do GESP:**")
-            if LOGO_GESP:
-                st.success(f"Encontrada: `{os.path.basename(LOGO_GESP)}`")
-                st.image(LOGO_GESP, width=100)
-            else:
-                st.error("Não encontrada (nenhum arquivo com 'gesp'/'captura' no nome dentro de assets/).")
-
 
 # ---------------------- Roteamento principal ----------------------
 
@@ -737,7 +690,7 @@ def main():
                 "<p style='text-align:center; color:gray; font-size:0.7rem; margin-bottom:0.2rem;'>Desenvolvido por</p>",
                 unsafe_allow_html=True
             )
-            sub_esq, sub_dir = st.columns([1, 6])
+            sub_esq, sub_dir = st.columns([1, 10])
             with sub_dir:
                 logo(LOGO_GESP, width=55)
 
