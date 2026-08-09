@@ -690,7 +690,7 @@ def main():
                 "<p style='text-align:center; color:gray; font-size:0.7rem; margin-bottom:0.2rem;'>Desenvolvido por</p>",
                 unsafe_allow_html=True
             )
-            sub_esq, sub_dir = st.columns([1, 18])
+            sub_esq, sub_dir = st.columns([1, 22])
             with sub_dir:
                 logo(LOGO_GESP, width=55)
 
