@@ -19,16 +19,21 @@ ASSETS_DIR = os.path.join(BASE_DIR, "assets")
 
 
 def _achar_logo(chaves):
-    """Procura na pasta assets um arquivo cujo nome contenha uma das palavras-chave
-    (sem diferenciar maiúsculas/minúsculas), independente do nome exato ou extensão.
-    Assim não é preciso renomear os arquivos originais (ex: 'cropped-logo-cras.jpg',
-    'Captura de tela 2026-08-09 103111.png')."""
-    if not os.path.isdir(ASSETS_DIR):
-        return None
-    for caminho in sorted(glob.glob(os.path.join(ASSETS_DIR, "*"))):
-        nome_lower = os.path.basename(caminho).lower()
-        if any(chave in nome_lower for chave in chaves):
-            return caminho
+    """Procura um arquivo de imagem cujo nome contenha uma das palavras-chave
+    (sem diferenciar maiúsculas/minúsculas), independente do nome exato.
+    Procura tanto na pasta assets/ (se existir) quanto na raiz do projeto,
+    já que enviar arquivos pelo site do GitHub não cria subpastas automaticamente."""
+    extensoes_validas = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+    pastas_busca = [ASSETS_DIR, BASE_DIR]
+    for pasta in pastas_busca:
+        if not os.path.isdir(pasta):
+            continue
+        for caminho in sorted(glob.glob(os.path.join(pasta, "*"))):
+            nome_lower = os.path.basename(caminho).lower()
+            if not nome_lower.endswith(extensoes_validas):
+                continue
+            if any(chave in nome_lower for chave in chaves):
+                return caminho
     return None
 
 
@@ -643,6 +648,7 @@ def pagina_configuracoes():
             "(útil depois de publicar no Streamlit Cloud)."
         )
         st.write(f"**Pasta de assets esperada:** `{ASSETS_DIR}`")
+        st.write(f"**Pasta raiz do projeto (busca alternativa):** `{BASE_DIR}`")
         if os.path.isdir(ASSETS_DIR):
             st.success("✅ A pasta 'assets' foi encontrada no servidor.")
             arquivos = sorted(os.listdir(ASSETS_DIR))
@@ -653,12 +659,18 @@ def pagina_configuracoes():
             else:
                 st.warning("A pasta existe, mas está vazia — nenhum arquivo dentro dela.")
         else:
-            st.error(
-                "❌ A pasta 'assets' NÃO existe no servidor. Isso normalmente significa que "
-                "ela não foi enviada/commitada para o GitHub (é comum acontecer ao subir pastas "
-                "com imagem pelo site do GitHub). Confira no seu repositório, na página do "
-                "GitHub, se a pasta `assets/` aparece com os arquivos de logo dentro dela."
+            st.info(
+                "ℹ️ A pasta 'assets' não existe no servidor — sem problema, o app também procura "
+                "as logos direto na raiz do projeto (mostrado abaixo)."
             )
+            arquivos_raiz = sorted(f for f in os.listdir(BASE_DIR)
+                                    if f.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")))
+            if arquivos_raiz:
+                st.write("**Imagens encontradas na raiz do projeto:**")
+                for a in arquivos_raiz:
+                    st.write(f"- `{a}`")
+            else:
+                st.error("Nenhuma imagem encontrada na raiz do projeto também.")
 
         st.markdown("---")
         col1, col2 = st.columns(2)
