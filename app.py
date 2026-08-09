@@ -572,7 +572,7 @@ def pagina_configuracoes():
     st.header("⚙️ Configurações")
     usuario = st.session_state["usuario"]
 
-    tab1, tab2 = st.tabs(["Usuários e acesso", "Minha conta"])
+    tab1, tab2, tab3 = st.tabs(["Usuários e acesso", "Minha conta", "🔧 Diagnóstico de logos"])
 
     with tab1:
         if usuario["papel"] != "Administrador":
@@ -636,6 +636,46 @@ def pagina_configuracoes():
         if trocar and nova:
             db.redefinir_senha(usuario["id"], nova)
             st.success("Senha alterada com sucesso!")
+
+    with tab3:
+        st.caption(
+            "Use esta aba para conferir por que as logos aparecem ou não aparecem no app "
+            "(útil depois de publicar no Streamlit Cloud)."
+        )
+        st.write(f"**Pasta de assets esperada:** `{ASSETS_DIR}`")
+        if os.path.isdir(ASSETS_DIR):
+            st.success("✅ A pasta 'assets' foi encontrada no servidor.")
+            arquivos = sorted(os.listdir(ASSETS_DIR))
+            if arquivos:
+                st.write("**Arquivos encontrados dentro de `assets/`:**")
+                for a in arquivos:
+                    st.write(f"- `{a}`")
+            else:
+                st.warning("A pasta existe, mas está vazia — nenhum arquivo dentro dela.")
+        else:
+            st.error(
+                "❌ A pasta 'assets' NÃO existe no servidor. Isso normalmente significa que "
+                "ela não foi enviada/commitada para o GitHub (é comum acontecer ao subir pastas "
+                "com imagem pelo site do GitHub). Confira no seu repositório, na página do "
+                "GitHub, se a pasta `assets/` aparece com os arquivos de logo dentro dela."
+            )
+
+        st.markdown("---")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write("**Logo do CRAS:**")
+            if LOGO_CRAS:
+                st.success(f"Encontrada: `{os.path.basename(LOGO_CRAS)}`")
+                st.image(LOGO_CRAS, width=100)
+            else:
+                st.error("Não encontrada (nenhum arquivo com 'cras' no nome dentro de assets/).")
+        with col2:
+            st.write("**Logo do GESP:**")
+            if LOGO_GESP:
+                st.success(f"Encontrada: `{os.path.basename(LOGO_GESP)}`")
+                st.image(LOGO_GESP, width=100)
+            else:
+                st.error("Não encontrada (nenhum arquivo com 'gesp'/'captura' no nome dentro de assets/).")
 
 
 # ---------------------- Roteamento principal ----------------------
