@@ -1,5 +1,7 @@
 import streamlit as st
 import pandas as pd
+import os
+import glob
 from datetime import date, datetime, timedelta
 
 import db
@@ -10,12 +12,41 @@ from utils import fmt_data_br, fmt_data_col, fmt_mes_br, fmt_semana_br, fmt_text
 st.set_page_config(page_title="Controle de Estoque", page_icon="📦", layout="wide")
 db.init_db()
 
+# Caminho absoluto da pasta assets, para funcionar independente de onde o
+# processo do Streamlit é iniciado (evita erro de caminho relativo em produção/Cloud).
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ASSETS_DIR = os.path.join(BASE_DIR, "assets")
+
+
+def _achar_logo(chaves):
+    """Procura na pasta assets um arquivo cujo nome contenha uma das palavras-chave
+    (sem diferenciar maiúsculas/minúsculas), independente do nome exato ou extensão.
+    Assim não é preciso renomear os arquivos originais (ex: 'cropped-logo-cras.jpg',
+    'Captura de tela 2026-08-09 103111.png')."""
+    if not os.path.isdir(ASSETS_DIR):
+        return None
+    for caminho in sorted(glob.glob(os.path.join(ASSETS_DIR, "*"))):
+        nome_lower = os.path.basename(caminho).lower()
+        if any(chave in nome_lower for chave in chaves):
+            return caminho
+    return None
+
+
+LOGO_CRAS = _achar_logo(["cras"])
+LOGO_GESP = _achar_logo(["gesp", "captura"])
+
+
+def logo(caminho, **kwargs):
+    """Mostra uma logo se o arquivo existir; não derruba o app se estiver faltando."""
+    if caminho and os.path.isfile(caminho):
+        st.image(caminho, **kwargs)
+
 # ---------------------- Autenticação ----------------------
 
 def tela_login():
     col_logo1, col_logo2, col_logo3 = st.columns([1, 1, 1])
     with col_logo2:
-        st.image("assets/logo_cras.jpg", width=150)
+        logo(LOGO_CRAS, width=150)
 
     st.markdown(
         "<h1 style='text-align:center;'>📦 Sistema de Controle de Estoque</h1>",
@@ -57,7 +88,7 @@ def tela_login():
             "<p style='text-align:center; color:gray; font-size:0.8rem;'>Desenvolvido por</p>",
             unsafe_allow_html=True
         )
-        st.image("assets/logo_gesp.png", width=70)
+        logo(LOGO_GESP, width=70)
 
 
 def logout_button():
@@ -638,7 +669,7 @@ def main():
     with st.sidebar:
         col_a, col_b, col_c = st.columns([1, 2, 1])
         with col_b:
-            st.image("assets/logo_cras.jpg", width=110)
+            logo(LOGO_CRAS, width=110)
         st.markdown(
             "<p style='text-align:center; font-weight:600; margin-top:0.3rem;'>Estoque CRAS</p>",
             unsafe_allow_html=True
@@ -655,7 +686,7 @@ def main():
                 "<p style='text-align:center; color:gray; font-size:0.7rem; margin-bottom:0.2rem;'>Desenvolvido por</p>",
                 unsafe_allow_html=True
             )
-            st.image("assets/logo_gesp.png", width=55)
+            logo(LOGO_GESP, width=55)
 
     if pagina == "Dashboard":
         pagina_dashboard()
