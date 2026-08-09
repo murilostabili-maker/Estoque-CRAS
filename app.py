@@ -49,51 +49,53 @@ def logo(caminho, **kwargs):
 # ---------------------- Autenticação ----------------------
 
 def tela_login():
-    col_logo1, col_logo2, col_logo3 = st.columns([1, 1, 1])
-    with col_logo2:
-        logo(LOGO_CRAS, width=150)
+    col_esq, col_centro, col_dir = st.columns([1, 3, 1])
+    with col_centro:
+        col_logo1, col_logo2, col_logo3 = st.columns([1, 1, 1])
+        with col_logo2:
+            logo(LOGO_CRAS, width=150)
 
-    st.markdown(
-        "<h1 style='text-align:center;'>Sistema de Controle de Estoque</h1>",
-        unsafe_allow_html=True
-    )
-    st.markdown(
-        "<p style='text-align:center; color:gray;'>Faça login para continuar</p>",
-        unsafe_allow_html=True
-    )
-
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        with st.form("login_form"):
-            username = st.text_input("Usuário")
-            senha = st.text_input("Senha", type="password")
-            entrar = st.form_submit_button("Entrar", use_container_width=True)
-
-        if entrar:
-            user = db.autenticar(username, senha)
-            if user:
-                st.session_state["usuario"] = user
-                st.rerun()
-            else:
-                st.error("Usuário ou senha inválidos.")
-
-    with col2:
-        st.info(
-            "**Usuários de demonstração:**\n\n"
-            "- Administrador: `admin` / `admin123`\n"
-            "- Estoque: `thereza` / `estoque123`\n"
-            "- Consulta: `consulta` / `consulta123`\n\n"
-            "Altere essas senhas em **Configurações** após o primeiro acesso."
-        )
-
-    st.markdown("<hr style='margin-top:2rem;'>", unsafe_allow_html=True)
-    col_a, col_b, col_c = st.columns([2, 1, 2])
-    with col_b:
         st.markdown(
-            "<p style='text-align:center; color:gray; font-size:0.8rem;'>Desenvolvido por</p>",
+            "<h1 style='text-align:center;'>📦 Sistema de Controle de Estoque</h1>",
             unsafe_allow_html=True
         )
-        logo(LOGO_GESP, width=70)
+        st.markdown(
+            "<p style='text-align:center; color:gray;'>Faça login para continuar</p>",
+            unsafe_allow_html=True
+        )
+
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            with st.form("login_form"):
+                username = st.text_input("Usuário")
+                senha = st.text_input("Senha", type="password")
+                entrar = st.form_submit_button("Entrar", use_container_width=True)
+
+            if entrar:
+                user = db.autenticar(username, senha)
+                if user:
+                    st.session_state["usuario"] = user
+                    st.rerun()
+                else:
+                    st.error("Usuário ou senha inválidos.")
+
+        with col2:
+            st.info(
+                "**Usuários de demonstração:**\n\n"
+                "- Administrador: `admin` / `admin123`\n"
+                "- Estoque: `thereza` / `estoque123`\n"
+                "- Consulta: `consulta` / `consulta123`\n\n"
+                "Altere essas senhas em **Configurações** após o primeiro acesso."
+            )
+
+        st.markdown("<hr style='margin-top:2rem;'>", unsafe_allow_html=True)
+        col_a, col_b, col_c = st.columns([2, 1, 2])
+        with col_b:
+            st.markdown(
+                "<p style='text-align:center; color:gray; font-size:0.8rem;'>Desenvolvido por</p>",
+                unsafe_allow_html=True
+            )
+            logo(LOGO_GESP, width=70)
 
 
 def logout_button():
