@@ -44,7 +44,7 @@ def logo(caminho, **kwargs):
 # ---------------------- Autenticação ----------------------
 
 def tela_login():
-    col_esq, col_centro, col_dir = st.columns([1, 3, 1])
+    col_esq, col_centro, col_dir = st.columns([1.5, 3, 1])
     with col_centro:
         col_logo1, col_logo2, col_logo3 = st.columns([1, 1, 1])
         with col_logo2:
@@ -84,7 +84,7 @@ def tela_login():
             )
 
         st.markdown("<hr style='margin-top:2rem;'>", unsafe_allow_html=True)
-        col_a, col_b, col_c = st.columns([3, 1, 2])
+        col_a, col_b, col_c = st.columns([2, 1, 2])
         with col_b:
             st.markdown(
                 "<p style='text-align:center; color:gray; font-size:0.8rem;'>Desenvolvido por</p>",
