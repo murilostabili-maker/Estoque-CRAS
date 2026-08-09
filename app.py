@@ -725,7 +725,7 @@ def main():
         with col_b:
             logo(LOGO_CRAS, width=110)
         st.markdown(
-            "<p style='text-align:center; font-weight:600; margin-top:0.3rem;'>Estoque CRAS</p>",
+            "<p style='text-align:center; font-weight:600; margin-top:0.3rem;'></p>",
             unsafe_allow_html=True
         )
         pagina = st.radio("Navegação", paginas,
