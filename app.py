@@ -44,9 +44,9 @@ def logo(caminho, **kwargs):
 # ---------------------- Autenticação ----------------------
 
 def tela_login():
-    col_esq, col_centro, col_dir = st.columns([1.5, 3, 1])
+    col_esq, col_centro, col_dir = st.columns([1, 3, 1])
     with col_centro:
-        col_logo1, col_logo2, col_logo3 = st.columns([1, 1, 1])
+        col_logo1, col_logo2, col_logo3 = st.columns([1.2, 1, 1])
         with col_logo2:
             logo(LOGO_CRAS, width=150)
 
