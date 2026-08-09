@@ -19,10 +19,6 @@ ASSETS_DIR = os.path.join(BASE_DIR, "assets")
 
 
 def _achar_logo(chaves):
-    """Procura um arquivo de imagem cujo nome contenha uma das palavras-chave
-    (sem diferenciar maiúsculas/minúsculas), independente do nome exato.
-    Procura tanto na pasta assets/ (se existir) quanto na raiz do projeto,
-    já que enviar arquivos pelo site do GitHub não cria subpastas automaticamente."""
     extensoes_validas = (".png", ".jpg", ".jpeg", ".gif", ".webp")
     pastas_busca = [ASSETS_DIR, BASE_DIR]
     for pasta in pastas_busca:
@@ -42,7 +38,6 @@ LOGO_GESP = _achar_logo(["gesp", "captura"])
 
 
 def logo(caminho, **kwargs):
-    """Mostra uma logo se o arquivo existir; não derruba o app se estiver faltando."""
     if caminho and os.path.isfile(caminho):
         st.image(caminho, **kwargs)
 
@@ -89,7 +84,7 @@ def tela_login():
             )
 
         st.markdown("<hr style='margin-top:2rem;'>", unsafe_allow_html=True)
-        col_a, col_b, col_c = st.columns([2, 1, 2])
+        col_a, col_b, col_c = st.columns([3, 1, 2])
         with col_b:
             st.markdown(
                 "<p style='text-align:center; color:gray; font-size:0.8rem;'>Desenvolvido por</p>",
