@@ -74,15 +74,6 @@ def tela_login():
                 else:
                     st.error("Usuário ou senha inválidos.")
 
-        with col2:
-            st.info(
-                "**Usuários de demonstração:**\n\n"
-                "- Administrador: `admin` / `admin123`\n"
-                "- Estoque: `thereza` / `estoque123`\n"
-                "- Consulta: `consulta` / `consulta123`\n\n"
-                "Altere essas senhas em **Configurações** após o primeiro acesso."
-            )
-
         st.markdown("<hr style='margin-top:2rem;'>", unsafe_allow_html=True)
         col_a, col_b, col_c = st.columns([2, 1, 2])
         with col_b:
