@@ -118,6 +118,8 @@ def init_db():
         conn.commit()
 
     # Semeia estoque inicial a partir do CSV extraído da planilha, apenas uma vez
+    # (só roda se a tabela de itens estiver totalmente vazia - ver reimportar_estoque_csv()
+    # para forçar uma atualização depois que o banco já foi criado)
     cur.execute("SELECT COUNT(*) as c FROM itens")
     if cur.fetchone()["c"] == 0 and os.path.exists(SEED_CSV):
         _seed_from_csv(conn)
@@ -208,6 +210,123 @@ def _seed_from_csv(conn):
                 (item_id, qtd, validade, date.today().isoformat(), "Carga inicial (migração da planilha)"),
             )
     conn.commit()
+
+
+# ---------------------- Reimportação / reset do estoque inicial ----------------------
+
+def contar_registros():
+    """Retorna quantos itens, lotes e movimentos existem hoje no banco -
+    usado para mostrar um resumo antes de um reset."""
+    conn = get_conn()
+    cur = conn.cursor()
+    itens = cur.execute("SELECT COUNT(*) as c FROM itens").fetchone()["c"]
+    lotes = cur.execute("SELECT COUNT(*) as c FROM lotes").fetchone()["c"]
+    movimentos = cur.execute("SELECT COUNT(*) as c FROM movimentos").fetchone()["c"]
+    conn.close()
+    return {"itens": itens, "lotes": lotes, "movimentos": movimentos}
+
+
+def reimportar_estoque_csv(modo="atualizar"):
+    """Recarrega o estoque a partir do estoque_inicial.csv, mesmo que o banco
+    já tenha itens cadastrados.
+
+    modo="atualizar": mantém itens, lotes e movimentações já existentes.
+        Para cada item do CSV:
+          - se o item ainda não existe, cria ele normalmente;
+          - se o item já existe, adiciona um novo lote com a diferença entre
+            a quantidade do CSV e a quantidade já cadastrada nos lotes atuais
+            (registrado como um lote de "Ajuste de importação"), sem apagar
+            nada do que já estava lá. Se a diferença for zero, não faz nada.
+        NÃO apaga entradas/saídas já registradas manualmente no app.
+
+    modo="substituir": apaga TODOS os itens, lotes e movimentações e recria
+        o estoque do zero, exatamente como veio do CSV. Os usuários (login)
+        não são afetados. Use apenas se ainda não tiver movimentações
+        importantes registradas no sistema.
+
+    Retorna um dicionário com um resumo do que foi feito.
+    """
+    if not os.path.exists(SEED_CSV):
+        raise FileNotFoundError(f"Arquivo não encontrado: {SEED_CSV}")
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    resumo = {"itens_criados": 0, "itens_ajustados": 0, "itens_sem_alteracao": 0}
+
+    if modo == "substituir":
+        cur.execute("DELETE FROM movimentos")
+        cur.execute("DELETE FROM lotes")
+        cur.execute("DELETE FROM itens")
+        conn.commit()
+        _seed_from_csv(conn)
+        with open(SEED_CSV, encoding="utf-8") as f:
+            resumo["itens_criados"] = sum(1 for _ in csv.DictReader(f))
+        conn.close()
+        return resumo
+
+    # modo == "atualizar"
+    with open(SEED_CSV, encoding="utf-8") as f:
+        reader = list(csv.DictReader(f))
+
+    # soma as quantidades do CSV por item (pode haver várias linhas/lotes do mesmo item)
+    totais_csv = {}
+    apresentacoes_csv = {}
+    for row in reader:
+        nome = row["item"].strip()
+        qtd = int(row.get("quantidade") or 0)
+        totais_csv[nome] = totais_csv.get(nome, 0) + qtd
+        apresentacoes_csv[nome] = row.get("apresentacao", "Unidade").strip() or "Unidade"
+
+    for nome, qtd_csv in totais_csv.items():
+        cur.execute("SELECT id FROM itens WHERE nome = ?", (nome,))
+        r = cur.fetchone()
+
+        if not r:
+            apres = apresentacoes_csv[nome]
+            cur.execute(
+                """INSERT INTO itens (nome, apresentacao, unidade_medida, categoria,
+                                       estoque_minimo, dias_alerta_validade)
+                   VALUES (?,?,?,?,?,?)""",
+                (nome, apres, _deduzir_unidade(apres), "Outros", 5, DIAS_ALERTA_PADRAO),
+            )
+            item_id = cur.lastrowid
+            cur.execute(
+                """INSERT INTO lotes (item_id, quantidade, data_entrada, observacao)
+                   VALUES (?,?,?,?)""",
+                (item_id, qtd_csv, date.today().isoformat(), "Item novo importado da planilha"),
+            )
+            resumo["itens_criados"] += 1
+            continue
+
+        item_id = r["id"]
+        qtd_atual = cur.execute(
+            "SELECT COALESCE(SUM(quantidade),0) as s FROM lotes WHERE item_id = ?", (item_id,)
+        ).fetchone()["s"]
+
+        diferenca = qtd_csv - qtd_atual
+        if diferenca == 0:
+            resumo["itens_sem_alteracao"] += 1
+            continue
+
+        cur.execute(
+            """INSERT INTO lotes (item_id, quantidade, data_entrada, observacao)
+               VALUES (?,?,?,?)""",
+            (item_id, diferenca, date.today().isoformat(),
+             f"Ajuste de importação da planilha (saldo anterior: {qtd_atual}, planilha: {qtd_csv})"),
+        )
+        cur.execute(
+            """INSERT INTO movimentos (tipo, item_id, quantidade, data, observacao, usuario)
+               VALUES ('AJUSTE', ?, ?, ?, ?, ?)""",
+            (item_id, diferenca, date.today().isoformat(),
+             f"Ajuste automático via reimportação de planilha (de {qtd_atual} para {qtd_csv})",
+             "sistema"),
+        )
+        resumo["itens_ajustados"] += 1
+
+    conn.commit()
+    conn.close()
+    return resumo
 
 
 # ---------------------- Funções de autenticação ----------------------
