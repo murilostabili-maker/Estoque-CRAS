@@ -44,9 +44,9 @@ def logo(caminho, **kwargs):
 # ---------------------- Autenticação ----------------------
 
 def tela_login():
-    col_esq, col_centro, col_dir = st.columns([1, 3, 1])
+    col_esq, col_centro, col_dir = st.columns([1, 2, 1])
     with col_centro:
-        col_logo1, col_logo2, col_logo3 = st.columns([1.2, 1, 1])
+        col_logo1, col_logo2, col_logo3 = st.columns([1, 1, 1])
         with col_logo2:
             logo(LOGO_CRAS, width=150)
 
@@ -59,8 +59,8 @@ def tela_login():
             unsafe_allow_html=True
         )
 
-        col1, col2 = st.columns([1, 1])
-        with col1:
+        col_form_esq, col_form_centro, col_form_dir = st.columns([1, 2, 1])
+        with col_form_centro:
             with st.form("login_form"):
                 username = st.text_input("Usuário")
                 senha = st.text_input("Senha", type="password")
@@ -84,7 +84,6 @@ def tela_login():
             sub_esq, sub_dir = st.columns([1, 4])
             with sub_dir:
                 logo(LOGO_GESP, width=70)
-
 
 def logout_button():
     with st.sidebar:
@@ -562,12 +561,11 @@ def pagina_relatorios():
                             mime="application/pdf",
                             use_container_width=True)
 
-
 def pagina_configuracoes():
     st.header("⚙️ Configurações")
     usuario = st.session_state["usuario"]
 
-    tab1, tab2= st.tabs(["Usuários e acesso", "Minha conta"])
+    tab1, tab2, tab3 = st.tabs(["Usuários e acesso", "Minha conta", "Importar planilha"])
 
     with tab1:
         if usuario["papel"] != "Administrador":
@@ -631,6 +629,65 @@ def pagina_configuracoes():
         if trocar and nova:
             db.redefinir_senha(usuario["id"], nova)
             st.success("Senha alterada com sucesso!")
+
+    with tab3:
+        if usuario["papel"] != "Administrador":
+            st.warning("Apenas administradores podem reimportar a planilha.")
+        else:
+            st.subheader("📥 Atualizar estoque a partir do arquivo estoque_inicial.csv")
+            st.write(
+                "Use isso depois de substituir o arquivo `estoque_inicial.csv` no repositório "
+                "do GitHub (por exemplo, com os dados de um novo mês da planilha). O sistema "
+                "**não** recarrega esse arquivo sozinho depois da primeira execução — é preciso "
+                "clicar em um dos botões abaixo."
+            )
+
+            contagem = db.contar_registros()
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Itens no banco hoje", contagem["itens"])
+            col2.metric("Lotes no banco hoje", contagem["lotes"])
+            col3.metric("Movimentações registradas", contagem["movimentos"])
+
+            st.markdown("---")
+            st.markdown("##### Opção 1 · Atualizar (recomendado)")
+            st.caption(
+                "Mantém tudo que já foi cadastrado e todo o histórico de entradas/saídas. "
+                "Para itens já existentes, ajusta o saldo para bater com a planilha nova "
+                "(registrando a diferença como um lote de ajuste). Itens novos da planilha "
+                "são cadastrados automaticamente."
+            )
+            if st.button("🔄 Atualizar estoque a partir da planilha", use_container_width=True):
+                try:
+                    resumo = db.reimportar_estoque_csv(modo="atualizar")
+                    st.success(
+                        f"Concluído! {resumo['itens_criados']} item(ns) novo(s) criado(s), "
+                        f"{resumo['itens_ajustados']} item(ns) com saldo ajustado, "
+                        f"{resumo['itens_sem_alteracao']} sem alteração."
+                    )
+                    st.rerun()
+                except FileNotFoundError as e:
+                    st.error(str(e))
+
+            st.markdown("---")
+            st.markdown("##### Opção 2 · Substituir tudo (cuidado)")
+            st.caption(
+                "Apaga TODOS os itens, lotes e movimentações (entradas/saídas) já registrados "
+                "e recria o estoque do zero, exatamente como está na planilha. Os usuários de "
+                "login não são afetados. Só use se ainda não houver movimentações importantes "
+                "no sistema."
+            )
+            confirmar_reset = st.checkbox(
+                "Sim, entendo que isso vai apagar todo o histórico de entradas e saídas "
+                "já registrado e quero recomeçar do zero com a planilha atual."
+            )
+            if st.button("🗑️ Substituir tudo pela planilha", use_container_width=True,
+                         disabled=not confirmar_reset):
+                try:
+                    resumo = db.reimportar_estoque_csv(modo="substituir")
+                    st.success(f"Estoque recriado do zero com {resumo['itens_criados']} itens da planilha.")
+                    st.rerun()
+                except FileNotFoundError as e:
+                    st.error(str(e))
 
 
 # ---------------------- Roteamento principal ----------------------
