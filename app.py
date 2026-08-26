@@ -44,12 +44,16 @@ def logo(caminho, **kwargs):
 # ---------------------- Autenticação ----------------------
 
 def tela_login():
-    col_esq, col_centro, col_dir = st.columns([1, 4, 1])
+    # 1. Define a largura da área central inteira (Aumente o 3 se quiser mais largo)
+    col_esq, col_centro, col_dir = st.columns([1, 3, 1]) 
+    
     with col_centro:
-        col_logo1, col_logo2, col_logo3 = st.columns([1, 1, 1])
-        with col_logo2:
+        # 2. Centralizando a Logo Principal
+        col_logo_esq, col_logo_centro, col_logo_dir = st.columns([1, 1, 1])
+        with col_logo_centro:
             logo(LOGO_CRAS, width=150)
 
+        # 3. Textos (O HTML já cuida da centralização perfeitamente)
         st.markdown(
             "<h1 style='text-align:center;'>Sistema de Controle de Estoque</h1>",
             unsafe_allow_html=True
@@ -59,12 +63,14 @@ def tela_login():
             unsafe_allow_html=True
         )
 
-        col_form_esq, col_form_centro, col_form_dir = st.columns([1, 2, 1])
+        # 4. Centralizando o Formulário dentro da área central
+        col_form_esq, col_form_centro, col_form_dir = st.columns([1, 4, 1])
         with col_form_centro:
             with st.form("login_form"):
                 username = st.text_input("Usuário")
                 senha = st.text_input("Senha", type="password")
-                entrar = st.form_submit_button("Entrar", use_container_width=True)
+                # use_container_width=True já faz o botão esticar e ficar centralizado
+                entrar = st.form_submit_button("Entrar", use_container_width=True) 
 
             if entrar:
                 user = db.autenticar(username, senha)
@@ -74,17 +80,20 @@ def tela_login():
                 else:
                     st.error("Usuário ou senha inválidos.")
 
+        # 5. Rodapé
         st.markdown("<hr style='margin-top:2rem;'>", unsafe_allow_html=True)
-        col_a, col_b, col_c = st.columns([2, 1, 2])
-        with col_b:
-            st.markdown(
-                "<p style='text-align:center; color:gray; font-size:0.8rem;'>Desenvolvido por</p>",
-                unsafe_allow_html=True
-            )
-            sub_esq, sub_dir = st.columns([1, 4])
-            with sub_dir:
-                logo(LOGO_GESP, width=70)
-
+        
+        # Texto do rodapé centralizado
+        st.markdown(
+            "<p style='text-align:center; color:gray; font-size:0.8rem; margin-bottom: 0;'>Desenvolvido por</p>",
+            unsafe_allow_html=True
+        )
+        
+        # Centralizando a Logo do Rodapé (Removido o [1, 4] assimétrico)
+        col_foot_esq, col_foot_centro, col_foot_dir = st.columns([1, 1, 1])
+        with col_foot_centro:
+            logo(LOGO_GESP, width=70)
+            
 def logout_button():
     with st.sidebar:
         st.markdown("---")
