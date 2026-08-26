@@ -739,16 +739,19 @@ def main():
                            format_func=lambda p: f"{ICONES.get(p, '')}  {p}")
     logout_button()
 
-    with st.sidebar:
+with st.sidebar:
         st.markdown("<div style='margin-top:2rem;'></div>", unsafe_allow_html=True)
         col_x, col_y, col_z = st.columns([1, 1, 1])
+        
         with col_y:
             st.markdown(
                 "<p style='text-align:center; color:gray; font-size:0.7rem; margin-bottom:0.2rem;'>Desenvolvido por</p>",
                 unsafe_allow_html=True
             )
-            sub_esq, sub_dir = st.columns([1, 50])
-            with sub_dir:
+            
+            # SOLUÇÃO: Use 3 colunas simétricas aqui dentro também
+            sub_esq, sub_centro, sub_dir = st.columns([1, 2, 1])
+            with sub_centro:
                 logo(LOGO_GESP, width=55)
 
     if pagina == "Dashboard":
