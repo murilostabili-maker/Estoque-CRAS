@@ -48,7 +48,7 @@ def tela_login():
     with col_centro:
         col_logo1, col_logo2, col_logo3 = st.columns([1, 1, 1])
         with col_logo2:
-            logo(LOGO_CRAS, width=150)
+            logo(LOGO_CRAS, width=200)
 
         st.markdown(
             "<h1 style='text-align:center;'>Sistema de Controle de Estoque</h1>",
