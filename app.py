@@ -90,7 +90,7 @@ def tela_login():
         )
         
         # Centralizando a Logo do Rodapé (Removido o [1, 4] assimétrico)
-        col_foot_esq, col_foot_centro, col_foot_dir = st.columns([2, 1, 2])
+        col_foot_esq, col_foot_centro, col_foot_dir = st.columns([3, 1, 3])
         with col_foot_centro:
             logo(LOGO_GESP, width=70)
             
