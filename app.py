@@ -739,7 +739,7 @@ def main():
                            format_func=lambda p: f"{ICONES.get(p, '')}  {p}")
     logout_button()
 
-with st.sidebar:
+    with st.sidebar:
         st.markdown("<div style='margin-top:2rem;'></div>", unsafe_allow_html=True)
         col_x, col_y, col_z = st.columns([1, 1, 1])
         with col_y:
