@@ -3,6 +3,58 @@
 Aplicativo em Streamlit desenvolvido a partir do checklist de levantamento de requisitos
 e da planilha de estoque atual (dados de Junho/2026 já carregados como estoque inicial).
 
+## 🗄️ Banco de dados externo (Postgres) — configuração recomendada para produção
+
+O sistema agora suporta um banco de dados **externo** (Postgres), além do SQLite local.
+Isso resolve dois problemas do SQLite local no Streamlit Cloud: os dados não se perdem
+quando o app reinicia/redeploya, e você pode inspecionar/fazer backup do banco fora do app.
+
+**Como funciona:** o `db.py` detecta automaticamente qual usar:
+- Se existir a variável `DATABASE_URL` (nas configurações do app no Streamlit Cloud, em
+  "Secrets"), o sistema usa esse banco Postgres.
+- Se não existir, o sistema cai automaticamente para o SQLite local (`data/estoque.db`) —
+  útil para rodar na sua máquina sem precisar de um banco externo.
+
+### Passo a passo para configurar o Postgres
+
+1. Crie uma conta gratuita em um provedor de Postgres, por exemplo **Neon**
+   (https://neon.tech) ou **Supabase** (https://supabase.com) — ambos têm um plano
+   gratuito que atende bem este projeto.
+2. Crie um novo projeto/banco de dados. O provedor vai te dar uma **connection string**,
+   parecida com:
+   `postgresql://usuario:senha@host.neon.tech/nome_do_banco?sslmode=require`
+3. No **Streamlit Community Cloud**, abra o seu app → menu **⋮** → **Settings** →
+   **Secrets**, e cole:
+   ```toml
+   DATABASE_URL = "postgresql://usuario:senha@host.neon.tech/nome_do_banco?sslmode=require"
+   ```
+4. Salve. O Streamlit Cloud reinicia o app sozinho. Na primeira execução, o sistema cria
+   as tabelas no Postgres e carrega o estoque inicial do `estoque_inicial.csv`, exatamente
+   como fazia no SQLite.
+
+Se você já tinha dados importantes no SQLite (uso em produção antes dessa mudança), me
+avise — dá para migrar esses dados para o Postgres em vez de recomeçar do zero.
+
+## 😴 Sobre o app "dormir" depois de um tempo sem uso
+
+O Streamlit Community Cloud (o plano gratuito de hospedagem) coloca automaticamente
+qualquer app para dormir depois de **12 horas sem nenhum acesso** — isso é uma política
+da própria plataforma, não um bug do sistema, e não tem como ser desligada por código.
+Quando alguém abre o link do app dormindo, aparece um botão para "acordá-lo" (leva
+uns 30-60 segundos).
+
+Formas de reduzir o impacto disso:
+- **Serviço de ping externo** (gratuito): cadastre a URL do seu app em um serviço como
+  o [cron-job.org](https://cron-job.org) ou o UptimeRobot, configurado para visitar a
+  URL a cada 10-15 minutos. Isso conta como acesso e mantém o app sempre acordado. É a
+  forma mais simples de contornar o limite de 12h sem precisar sair do plano gratuito.
+- **Migrar para um plano pago** do Streamlit Cloud, ou hospedar em outro serviço sem
+  essa política de hibernação (ex: Render, Railway) — envolve mudanças além do código.
+
+O banco de dados externo (seção acima) já resolve a parte mais importante: mesmo que o
+app durma e acorde depois, os dados continuam intactos, porque não dependem mais do
+armazenamento do container.
+
 ## O que o sistema já entrega
 
 - **Dashboard**: itens cadastrados, quantidade total, itens vencidos/a vencer, estoque baixo,

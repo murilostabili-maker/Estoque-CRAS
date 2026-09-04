@@ -1,10 +1,27 @@
 """
 Módulo de banco de dados para o Sistema de Controle de Estoque.
-Usa SQLite (arquivo local estoque.db) - simples, sem necessidade de servidor.
+
+Suporta dois modos, escolhidos automaticamente:
+
+- **Banco externo (Postgres)**: usado sempre que a variável de ambiente
+  DATABASE_URL ou o segredo st.secrets["DATABASE_URL"] estiver configurado.
+  Esse é o modo recomendado em produção (Streamlit Cloud), porque os dados
+  ficam guardados fora do container do app - não se perdem quando o app
+  reinicia, dorme ou é redeployado.
+
+- **SQLite local (arquivo data/estoque.db)**: usado automaticamente quando
+  nenhum banco externo está configurado. Útil para rodar o projeto na sua
+  própria máquina sem precisar de um banco Postgres.
+
+O restante do sistema (queries.py, app.py) não precisa saber qual dos dois
+está em uso: as duas conexões oferecem a mesma "API" (métodos .execute(),
+.executemany(), .commit(), .close(), cursores com .fetchone()/.fetchall(),
+linhas acessíveis como dicionário e cur.lastrowid após um INSERT).
 """
 import sqlite3
 import hashlib
 import os
+import re
 import csv
 from datetime import datetime, date
 
@@ -24,36 +41,149 @@ UNIDADES_PADRAO = [
 DIAS_ALERTA_PADRAO = 120
 
 
-def get_conn():
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    return conn
+# ---------------------- Detecção do backend (Postgres externo x SQLite local) ----------------------
+
+def _get_database_url():
+    """Procura a string de conexão do banco externo, nessa ordem:
+    1) variável de ambiente DATABASE_URL (útil para testes locais)
+    2) st.secrets["DATABASE_URL"] (usado no Streamlit Cloud)
+    Se nenhuma existir, retorna None e o sistema usa SQLite local.
+    """
+    url = os.environ.get("DATABASE_URL")
+    if url:
+        return url
+    try:
+        import streamlit as st
+        return st.secrets.get("DATABASE_URL")
+    except Exception:
+        return None
+
+
+DATABASE_URL = _get_database_url()
+USANDO_POSTGRES = bool(DATABASE_URL)
+
+
+# ---------------------- Camada de compatibilidade para Postgres ----------------------
+# Faz o psycopg2 se comportar como o sqlite3 nos pontos que queries.py e db.py usam:
+# placeholders "?", conn.execute()/executemany() como atalho, linhas tipo dicionário,
+# e cur.lastrowid após um INSERT.
+
+if USANDO_POSTGRES:
+    import psycopg2
+    import psycopg2.extras
+
+    _INSERT_RE = re.compile(r"^\s*INSERT\s+INTO", re.IGNORECASE)
+
+    def _traduzir(query: str) -> str:
+        """Troca os placeholders '?' (estilo SQLite) por '%s' (estilo psycopg2)."""
+        return query.replace("?", "%s")
+
+    class _PGCursor:
+        def __init__(self, cur):
+            self._cur = cur
+            self.lastrowid = None
+
+        def execute(self, query, params=()):
+            query_traduzida = _traduzir(query)
+            eh_insert = bool(_INSERT_RE.match(query)) and "RETURNING" not in query.upper()
+            if eh_insert:
+                query_traduzida = query_traduzida.rstrip().rstrip(";") + " RETURNING id"
+            self._cur.execute(query_traduzida, params)
+            if eh_insert:
+                row = self._cur.fetchone()
+                self.lastrowid = row["id"] if row else None
+            return self
+
+        def executemany(self, query, seq_of_params):
+            self._cur.executemany(_traduzir(query), seq_of_params)
+            return self
+
+        def fetchone(self):
+            return self._cur.fetchone()
+
+        def fetchall(self):
+            return self._cur.fetchall()
+
+        def __iter__(self):
+            return iter(self._cur)
+
+    class _PGConnection:
+        def __init__(self, conn):
+            self._conn = conn
+
+        def cursor(self):
+            return _PGCursor(self._conn.cursor())
+
+        def execute(self, query, params=()):
+            # Atalho equivalente ao sqlite3.Connection.execute(): abre um cursor,
+            # executa e devolve o cursor (para permitir .fetchone()/.fetchall() em cadeia).
+            cur = self.cursor()
+            cur.execute(query, params)
+            return cur
+
+        def executemany(self, query, seq_of_params):
+            cur = self.cursor()
+            cur.executemany(query, seq_of_params)
+            return cur
+
+        def commit(self):
+            self._conn.commit()
+
+        def close(self):
+            self._conn.close()
+
+    def get_conn():
+        conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+        return _PGConnection(conn)
+
+else:
+    def get_conn():
+        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        return conn
+
+
+def read_sql(query, params=None):
+    """Executa uma consulta SELECT e devolve um pandas DataFrame, funcionando
+    igual nos dois backends (evita depender de pd.read_sql_query, que não
+    reconhece a conexão psycopg2 diretamente)."""
+    import pandas as pd
+    conn = get_conn()
+    try:
+        cur = conn.execute(query, params or ())
+        linhas = cur.fetchall()
+        return pd.DataFrame([dict(r) for r in linhas])
+    finally:
+        conn.close()
 
 
 def hash_senha(senha: str) -> str:
     return hashlib.sha256(senha.encode("utf-8")).hexdigest()
 
 
-def init_db():
-    conn = get_conn()
-    cur = conn.cursor()
+# ---------------------- Criação e migração do esquema ----------------------
 
-    cur.execute("""
+def _sql_criar_tabelas():
+    """Monta o SQL de criação das tabelas, ajustando a coluna de auto-incremento
+    conforme o backend (SERIAL no Postgres, AUTOINCREMENT no SQLite)."""
+    pk = "SERIAL PRIMARY KEY" if USANDO_POSTGRES else "INTEGER PRIMARY KEY AUTOINCREMENT"
+
+    return [
+        f"""
         CREATE TABLE IF NOT EXISTS usuarios (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id {pk},
             username TEXT UNIQUE NOT NULL,
             senha_hash TEXT NOT NULL,
             nome TEXT NOT NULL,
             papel TEXT NOT NULL CHECK(papel IN ('Administrador','Estoque','Consulta')),
             ativo INTEGER NOT NULL DEFAULT 1
         )
-    """)
-
-    cur.execute("""
+        """,
+        f"""
         CREATE TABLE IF NOT EXISTS itens (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id {pk},
             nome TEXT UNIQUE NOT NULL,
             apresentacao TEXT,
             unidade_medida TEXT DEFAULT 'Unidade',
@@ -62,11 +192,10 @@ def init_db():
             dias_alerta_validade INTEGER DEFAULT 120,
             ativo INTEGER NOT NULL DEFAULT 1
         )
-    """)
-
-    cur.execute("""
+        """,
+        f"""
         CREATE TABLE IF NOT EXISTS lotes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id {pk},
             item_id INTEGER NOT NULL REFERENCES itens(id),
             numero_lote TEXT,
             quantidade INTEGER NOT NULL DEFAULT 0,
@@ -76,11 +205,10 @@ def init_db():
             data_entrada TEXT,
             observacao TEXT
         )
-    """)
-
-    cur.execute("""
+        """,
+        f"""
         CREATE TABLE IF NOT EXISTS movimentos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id {pk},
             tipo TEXT NOT NULL CHECK(tipo IN ('ENTRADA','SAIDA','AJUSTE')),
             item_id INTEGER NOT NULL REFERENCES itens(id),
             lote_id INTEGER REFERENCES lotes(id),
@@ -96,7 +224,16 @@ def init_db():
             observacao TEXT,
             usuario TEXT
         )
-    """)
+        """,
+    ]
+
+
+def init_db():
+    conn = get_conn()
+    cur = conn.cursor()
+
+    for stmt in _sql_criar_tabelas():
+        cur.execute(stmt)
 
     conn.commit()
 
@@ -127,16 +264,30 @@ def init_db():
     conn.close()
 
 
+def _colunas_existentes_itens(conn):
+    """Lista os nomes das colunas já existentes na tabela itens, em qualquer
+    um dos dois backends."""
+    cur = conn.cursor()
+    if USANDO_POSTGRES:
+        cur.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = 'itens'"
+        )
+        return {row["column_name"] for row in cur.fetchall()}
+    else:
+        return {row["name"] for row in cur.execute("PRAGMA table_info(itens)")}
+
+
 def _migrar_colunas(conn):
     """Adiciona colunas novas em bancos já existentes (instalações antigas),
     sem perder os dados já cadastrados."""
     cur = conn.cursor()
-    colunas_existentes = {row["name"] for row in cur.execute("PRAGMA table_info(itens)")}
+    colunas_existentes = _colunas_existentes_itens(conn)
 
     if "unidade_medida" not in colunas_existentes:
         cur.execute("ALTER TABLE itens ADD COLUMN unidade_medida TEXT DEFAULT 'Unidade'")
         # tenta deduzir a unidade a partir da apresentação já cadastrada
-        for row in cur.execute("SELECT id, apresentacao FROM itens").fetchall():
+        cur.execute("SELECT id, apresentacao FROM itens")
+        for row in cur.fetchall():
             cur.execute(
                 "UPDATE itens SET unidade_medida = ? WHERE id = ?",
                 (_deduzir_unidade(row["apresentacao"]), row["id"]),
@@ -346,9 +497,9 @@ def autenticar(username: str, senha: str):
 
 def listar_usuarios():
     conn = get_conn()
-    df = conn.execute("SELECT id, username, nome, papel, ativo FROM usuarios").fetchall()
+    linhas = conn.execute("SELECT id, username, nome, papel, ativo FROM usuarios").fetchall()
     conn.close()
-    return [dict(r) for r in df]
+    return [dict(r) for r in linhas]
 
 
 def criar_usuario(username, senha, nome, papel):
