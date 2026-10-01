@@ -111,6 +111,194 @@ def _ler_linhas_aba(arquivo, nome_aba):
     return linhas
 
 
+def _processar_mes(arquivo, nome_aba, usuario, apenas_simular):
+    """Rotina única que faz a leitura/reconciliação da planilha. Usada tanto
+    para pré-visualizar (apenas_simular=True, nada é gravado no banco) quanto
+    para importar de verdade (apenas_simular=False) - dessa forma a prévia
+    mostrada ao administrador é garantidamente igual ao que vai acontecer."""
+    linhas = _ler_linhas_aba(arquivo, nome_aba)
+    info_mes = _parse_nome_aba(nome_aba)
+    if not info_mes:
+        raise ValueError(f"Não foi possível identificar o mês/ano a partir do nome da aba '{nome_aba}'.")
+    ano, mes = info_mes
+    data_mov = date(ano, mes, 1).isoformat()
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    resumo = {
+        "mes_label": nome_aba,
+        "itens_novos": [],
+        "lotes_criados": 0,
+        "lotes_atualizados": 0,
+        "lotes_sem_alteracao": 0,
+        "total_entradas": 0,
+        "total_saidas": 0,
+        "avisos": [],
+        "mudancas_saldo": [],
+    }
+
+    itens_na_planilha = set()
+    lotes_tocados = set()
+
+    # Cache local dos itens/lotes já vistos nesta execução. No modo de
+    # simulação, itens e lotes "novos" recebem um id negativo provisório
+    # (nunca gravado) só para conseguir casar linhas seguintes da mesma
+    # planilha que se referem a eles.
+    cache_item_id = {}
+    cache_lotes_item = {}
+    proximo_id_virtual = [-1]
+
+    def _novo_id_virtual():
+        proximo_id_virtual[0] -= 1
+        return proximo_id_virtual[0]
+
+    for linha in linhas:
+        nome = linha["item"]
+
+        if nome not in cache_item_id:
+            cur.execute("SELECT id FROM itens WHERE nome = ?", (nome,))
+            r = cur.fetchone()
+            if r:
+                item_id = r["id"]
+                cur.execute("SELECT id, quantidade, validade FROM lotes WHERE item_id = ?", (item_id,))
+                cache_lotes_item[item_id] = [dict(x) for x in cur.fetchall()]
+            else:
+                if apenas_simular:
+                    item_id = _novo_id_virtual()
+                else:
+                    cur.execute(
+                        """INSERT INTO itens (nome, apresentacao, unidade_medida, categoria,
+                                               estoque_minimo, dias_alerta_validade)
+                           VALUES (?,?,?,?,?,?)""",
+                        (nome, linha["apresentacao"], _deduzir_unidade(linha["apresentacao"]),
+                         "Outros", 5, DIAS_ALERTA_PADRAO),
+                    )
+                    item_id = cur.lastrowid
+                cache_lotes_item[item_id] = []
+                resumo["itens_novos"].append(nome)
+            cache_item_id[nome] = item_id
+
+        item_id = cache_item_id[nome]
+        itens_na_planilha.add(item_id)
+
+        validade_iso = _parse_validade(linha["validade_raw"])
+        if validade_iso and int(validade_iso[:4]) < 2024:
+            resumo["avisos"].append(
+                f"{nome}: a validade lida da planilha foi '{linha['validade_raw']}', que parece "
+                f"implausível (ano muito antigo) — pode ser um erro de formatação da célula na "
+                f"planilha original. Confira esse item manualmente depois de importar."
+            )
+
+        lotes_existentes = cache_lotes_item[item_id]
+        lote_match = next((l for l in lotes_existentes if l["validade"] == validade_iso), None)
+
+        if lote_match is None:
+            if apenas_simular:
+                lote_id = _novo_id_virtual()
+                cache_lotes_item[item_id].append(
+                    {"id": lote_id, "quantidade": linha["saldo_final"], "validade": validade_iso}
+                )
+            else:
+                cur.execute(
+                    """INSERT INTO lotes (item_id, quantidade, validade, data_entrada, observacao)
+                       VALUES (?,?,?,?,?)""",
+                    (item_id, linha["saldo_final"], validade_iso, data_mov,
+                     f"Importado da planilha ({nome_aba})"),
+                )
+                lote_id = cur.lastrowid
+            resumo["lotes_criados"] += 1
+            if linha["saldo_final"] != 0:
+                resumo["mudancas_saldo"].append({
+                    "item": nome, "validade": linha["validade_raw"] or "sem validade",
+                    "antes": 0, "depois": linha["saldo_final"], "delta": linha["saldo_final"],
+                })
+        else:
+            lote_id = lote_match["id"]
+            saldo_atual = lote_match["quantidade"]
+            if saldo_atual != linha["saldo_inicial"]:
+                resumo["avisos"].append(
+                    f"{nome} (validade: {linha['validade_raw'] or 'sem validade'}) — o saldo no "
+                    f"sistema era {saldo_atual}, mas a planilha esperava {linha['saldo_inicial']} "
+                    f"no início de {nome_aba}. O saldo final da planilha foi aplicado mesmo assim."
+                )
+            if saldo_atual != linha["saldo_final"]:
+                resumo["mudancas_saldo"].append({
+                    "item": nome, "validade": linha["validade_raw"] or "sem validade",
+                    "antes": saldo_atual, "depois": linha["saldo_final"],
+                    "delta": linha["saldo_final"] - saldo_atual,
+                })
+            if apenas_simular:
+                lote_match["quantidade"] = linha["saldo_final"]
+            else:
+                cur.execute("UPDATE lotes SET quantidade = ? WHERE id = ?",
+                            (linha["saldo_final"], lote_id))
+            if linha["entrada"] > 0 or linha["saida"] > 0:
+                resumo["lotes_atualizados"] += 1
+            else:
+                resumo["lotes_sem_alteracao"] += 1
+
+        lotes_tocados.add(lote_id)
+
+        if linha["entrada"] > 0:
+            if not apenas_simular:
+                cur.execute(
+                    """INSERT INTO movimentos (tipo, item_id, lote_id, quantidade, data,
+                                                observacao, usuario)
+                       VALUES ('ENTRADA', ?, ?, ?, ?, ?, ?)""",
+                    (item_id, lote_id, linha["entrada"], data_mov,
+                     f"Importado da planilha ({nome_aba})", usuario),
+                )
+            resumo["total_entradas"] += linha["entrada"]
+
+        if linha["saida"] > 0:
+            if not apenas_simular:
+                cur.execute(
+                    """INSERT INTO movimentos (tipo, item_id, lote_id, quantidade, data,
+                                                setor, profissional, motivo, usuario)
+                       VALUES ('SAIDA', ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (item_id, lote_id, linha["saida"], data_mov,
+                     "Não informado (importado da planilha)",
+                     "Não informado (importado da planilha)",
+                     f"Importado da planilha ({nome_aba})", usuario),
+                )
+            resumo["total_saidas"] += linha["saida"]
+
+    # Avisa sobre lotes que já existiam no sistema, de itens que apareceram
+    # nesta planilha, mas que nenhuma linha do mês referenciou (mesma validade
+    # batendo) - o saldo desses lotes continua sendo somado no total do item,
+    # mas pode já não refletir a realidade (item todo consumido, batch
+    # descartado, ou a planilha simplesmente parou de rastrear aquela validade).
+    for item_id in itens_na_planilha:
+        if item_id < 0:  # item novo (ainda não existe de verdade) - não tem lote órfão possível
+            continue
+        for lote in cache_lotes_item.get(item_id, []):
+            if lote["id"] not in lotes_tocados and lote["quantidade"] > 0:
+                cur.execute("SELECT nome FROM itens WHERE id = ?", (item_id,))
+                nome_item = cur.fetchone()["nome"]
+                resumo["avisos"].append(
+                    f"{nome_item} (validade: {lote['validade'] or 'sem validade'}) — tem {lote['quantidade']} "
+                    f"unidade(s) no sistema de uma importação anterior, mas nenhuma linha de "
+                    f"{nome_aba} bateu com esse lote (pode ser que a validade tenha sido "
+                    f"digitada diferente, ou que esse saldo já não exista de verdade). Esse "
+                    f"saldo NÃO foi alterado — confira manualmente se ele ainda é válido."
+                )
+
+    if apenas_simular:
+        conn.close()  # nada foi gravado, só leituras
+    else:
+        conn.commit()
+        conn.close()
+
+    return resumo
+
+
+def pre_visualizar_mes(arquivo, nome_aba):
+    """Mostra o que a importação FARIA, sem gravar nada no banco - para o
+    administrador conferir antes de confirmar."""
+    return _processar_mes(arquivo, nome_aba, usuario=None, apenas_simular=True)
+
+
 def importar_mes(arquivo, nome_aba, usuario="admin"):
     """
     Lê a aba indicada do arquivo .xlsx e, para cada item/lote da planilha:
@@ -132,136 +320,8 @@ def importar_mes(arquivo, nome_aba, usuario="admin"):
     Retorna um resumo do que foi feito, incluindo avisos quando o saldo
     inicial da planilha não batia com o saldo que já estava no sistema
     (sinal de que algo mudou por fora da planilha entre as duas datas).
+
+    Use pre_visualizar_mes() primeiro para mostrar as mudanças ao
+    administrador antes de chamar esta função de verdade.
     """
-    linhas = _ler_linhas_aba(arquivo, nome_aba)
-    info_mes = _parse_nome_aba(nome_aba)
-    if not info_mes:
-        raise ValueError(f"Não foi possível identificar o mês/ano a partir do nome da aba '{nome_aba}'.")
-    ano, mes = info_mes
-    data_mov = date(ano, mes, 1).isoformat()
-
-    conn = get_conn()
-    cur = conn.cursor()
-
-    resumo = {
-        "mes_label": nome_aba,
-        "itens_novos": [],
-        "lotes_criados": 0,
-        "lotes_atualizados": 0,
-        "lotes_sem_alteracao": 0,
-        "total_entradas": 0,
-        "total_saidas": 0,
-        "avisos": [],
-    }
-
-    itens_na_planilha = set()
-    lotes_tocados = set()
-
-    for linha in linhas:
-        nome = linha["item"]
-        cur.execute("SELECT id FROM itens WHERE nome = ?", (nome,))
-        r = cur.fetchone()
-
-        if not r:
-            cur.execute(
-                """INSERT INTO itens (nome, apresentacao, unidade_medida, categoria,
-                                       estoque_minimo, dias_alerta_validade)
-                   VALUES (?,?,?,?,?,?)""",
-                (nome, linha["apresentacao"], _deduzir_unidade(linha["apresentacao"]),
-                 "Outros", 5, DIAS_ALERTA_PADRAO),
-            )
-            item_id = cur.lastrowid
-            resumo["itens_novos"].append(nome)
-        else:
-            item_id = r["id"]
-
-        itens_na_planilha.add(item_id)
-
-        validade_iso = _parse_validade(linha["validade_raw"])
-        if validade_iso and int(validade_iso[:4]) < 2024:
-            resumo["avisos"].append(
-                f"{nome}: a validade lida da planilha foi '{linha['validade_raw']}', que parece "
-                f"implausível (ano muito antigo) — pode ser um erro de formatação da célula na "
-                f"planilha original. Confira esse item manualmente depois de importar."
-            )
-
-        cur.execute("SELECT id, quantidade, validade FROM lotes WHERE item_id = ?", (item_id,))
-        lotes_existentes = cur.fetchall()
-        lote_match = next((l for l in lotes_existentes if l["validade"] == validade_iso), None)
-
-        if lote_match is None:
-            cur.execute(
-                """INSERT INTO lotes (item_id, quantidade, validade, data_entrada, observacao)
-                   VALUES (?,?,?,?,?)""",
-                (item_id, linha["saldo_final"], validade_iso, data_mov,
-                 f"Importado da planilha ({nome_aba})"),
-            )
-            lote_id = cur.lastrowid
-            resumo["lotes_criados"] += 1
-        else:
-            lote_id = lote_match["id"]
-            saldo_atual = lote_match["quantidade"]
-            if saldo_atual != linha["saldo_inicial"]:
-                resumo["avisos"].append(
-                    f"{nome} (validade: {linha['validade_raw'] or 'sem validade'}) — o saldo no "
-                    f"sistema era {saldo_atual}, mas a planilha esperava {linha['saldo_inicial']} "
-                    f"no início de {nome_aba}. O saldo final da planilha foi aplicado mesmo assim."
-                )
-            cur.execute("UPDATE lotes SET quantidade = ? WHERE id = ?",
-                        (linha["saldo_final"], lote_id))
-            if linha["entrada"] > 0 or linha["saida"] > 0:
-                resumo["lotes_atualizados"] += 1
-            else:
-                resumo["lotes_sem_alteracao"] += 1
-
-        lotes_tocados.add(lote_id)
-
-        if linha["entrada"] > 0:
-            cur.execute(
-                """INSERT INTO movimentos (tipo, item_id, lote_id, quantidade, data,
-                                            observacao, usuario)
-                   VALUES ('ENTRADA', ?, ?, ?, ?, ?, ?)""",
-                (item_id, lote_id, linha["entrada"], data_mov,
-                 f"Importado da planilha ({nome_aba})", usuario),
-            )
-            resumo["total_entradas"] += linha["entrada"]
-
-        if linha["saida"] > 0:
-            cur.execute(
-                """INSERT INTO movimentos (tipo, item_id, lote_id, quantidade, data,
-                                            setor, profissional, motivo, usuario)
-                   VALUES ('SAIDA', ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (item_id, lote_id, linha["saida"], data_mov,
-                 "Não informado (importado da planilha)",
-                 "Não informado (importado da planilha)",
-                 f"Importado da planilha ({nome_aba})", usuario),
-            )
-            resumo["total_saidas"] += linha["saida"]
-
-    # Avisa sobre lotes que já existiam no sistema, de itens que apareceram
-    # nesta planilha, mas que nenhuma linha do mês referenciou (mesma validade
-    # batendo) - o saldo desses lotes continua sendo somado no total do item,
-    # mas pode já não refletir a realidade (item todo consumido, batch
-    # descartado, ou a planilha simplesmente parou de rastrear aquela validade).
-    for item_id in itens_na_planilha:
-        cur.execute(
-            "SELECT nome FROM itens WHERE id = ?", (item_id,)
-        )
-        nome_item = cur.fetchone()["nome"]
-        cur.execute(
-            "SELECT id, quantidade, validade FROM lotes WHERE item_id = ? AND quantidade > 0",
-            (item_id,),
-        )
-        for lote in cur.fetchall():
-            if lote["id"] not in lotes_tocados:
-                resumo["avisos"].append(
-                    f"{nome_item} (validade: {lote['validade'] or 'sem validade'}) — tem {lote['quantidade']} "
-                    f"unidade(s) no sistema de uma importação anterior, mas nenhuma linha de "
-                    f"{nome_aba} bateu com esse lote (pode ser que a validade tenha sido "
-                    f"digitada diferente, ou que esse saldo já não exista de verdade). Esse "
-                    f"saldo NÃO foi alterado — confira manualmente se ele ainda é válido."
-                )
-
-    conn.commit()
-    conn.close()
-    return resumo
+    return _processar_mes(arquivo, nome_aba, usuario=usuario, apenas_simular=False)

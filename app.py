@@ -683,20 +683,85 @@ def pagina_configuracoes():
                         "Mês a importar (mais recente já vem selecionado)",
                         nomes_meses, index=0
                     )
-                    confirmar_import = st.button(
-                        f"📥 Importar dados de {mes_escolhido}", use_container_width=True,
-                        type="primary",
-                    )
-                    if confirmar_import:
-                        with st.spinner(f"Importando {mes_escolhido}..."):
+
+                    # Se o arquivo ou o mês escolhido mudou desde a última prévia,
+                    # ela fica desatualizada - descarta para evitar confirmar algo
+                    # que não corresponde mais ao que está selecionado agora.
+                    preview_atual = st.session_state.get("preview_planilha")
+                    if preview_atual and (
+                        preview_atual["arquivo_nome"] != arquivo_upload.name
+                        or preview_atual["mes_label"] != mes_escolhido
+                    ):
+                        del st.session_state["preview_planilha"]
+                        preview_atual = None
+
+                    if st.button("🔍 Analisar mudanças", use_container_width=True):
+                        with st.spinner(f"Analisando {mes_escolhido}..."):
                             try:
-                                resumo = planilha.importar_mes(
-                                    io.BytesIO(arquivo_bytes), mes_escolhido, usuario=usuario["nome"]
+                                resumo_preview = planilha.pre_visualizar_mes(
+                                    io.BytesIO(arquivo_bytes), mes_escolhido
                                 )
-                                st.session_state["ultimo_resumo_planilha"] = resumo
+                                st.session_state["preview_planilha"] = {
+                                    "arquivo_nome": arquivo_upload.name,
+                                    "mes_label": mes_escolhido,
+                                    "resumo": resumo_preview,
+                                }
                             except Exception as e:
-                                st.error(f"Erro ao importar: {e}")
+                                st.error(f"Erro ao analisar: {e}")
                         st.rerun()
+
+                    preview_atual = st.session_state.get("preview_planilha")
+                    if preview_atual:
+                        r = preview_atual["resumo"]
+                        st.markdown("---")
+                        st.markdown(f"###### 🔍 Prévia das mudanças — {r['mes_label']}")
+                        st.caption("Nada foi gravado ainda. Confira abaixo e confirme no final.")
+
+                        c1, c2, c3, c4 = st.columns(4)
+                        c1.metric("Itens novos", len(r["itens_novos"]))
+                        c2.metric("Lotes novos", r["lotes_criados"])
+                        c3.metric("Entradas a registrar", r["total_entradas"])
+                        c4.metric("Saídas a registrar", r["total_saidas"])
+
+                        if r["itens_novos"]:
+                            with st.expander(f"➕ {len(r['itens_novos'])} itens novos serão cadastrados"):
+                                for nome_item in r["itens_novos"]:
+                                    st.write(f"- {nome_item}")
+
+                        if r["mudancas_saldo"]:
+                            with st.expander(
+                                f"📊 {len(r['mudancas_saldo'])} lotes terão o saldo alterado", expanded=True
+                            ):
+                                df_mudancas = pd.DataFrame(r["mudancas_saldo"]).rename(columns={
+                                    "item": "Item", "validade": "Validade", "antes": "Saldo atual",
+                                    "depois": "Saldo após importar", "delta": "Diferença",
+                                })
+                                st.dataframe(df_mudancas, use_container_width=True, hide_index=True, height=300)
+
+                        if r["avisos"]:
+                            with st.expander(f"⚠️ {len(r['avisos'])} avisos para conferir"):
+                                st.caption(
+                                    "Não impedem a importação, só sinalizam inconsistências entre "
+                                    "a planilha e o que já está no sistema."
+                                )
+                                for aviso in r["avisos"]:
+                                    st.write(f"- {aviso}")
+
+                        st.markdown("---")
+                        if st.button(
+                            f"✅ Confirmar importação de {r['mes_label']}", use_container_width=True,
+                            type="primary",
+                        ):
+                            with st.spinner(f"Importando {r['mes_label']}..."):
+                                try:
+                                    resumo_final = planilha.importar_mes(
+                                        io.BytesIO(arquivo_bytes), r["mes_label"], usuario=usuario["nome"]
+                                    )
+                                    st.session_state["ultimo_resumo_planilha"] = resumo_final
+                                    del st.session_state["preview_planilha"]
+                                except Exception as e:
+                                    st.error(f"Erro ao importar: {e}")
+                            st.rerun()
 
             if "ultimo_resumo_planilha" in st.session_state:
                 r = st.session_state["ultimo_resumo_planilha"]
