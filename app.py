@@ -2,11 +2,13 @@ import streamlit as st
 import pandas as pd
 import os
 import glob
+import io
 from datetime import date, datetime, timedelta
 
 import db
 import queries
 import reports
+import planilha
 from utils import fmt_data_br, fmt_data_col, fmt_mes_br, fmt_semana_br, fmt_texto_col, FORMATO_DATA_INPUT
 
 st.set_page_config(page_title="Controle de Estoque", page_icon="📦", layout="wide")
@@ -641,16 +643,8 @@ def pagina_configuracoes():
 
     with tab3:
         if usuario["papel"] != "Administrador":
-            st.warning("Apenas administradores podem reimportar a planilha.")
+            st.warning("Apenas administradores podem importar planilhas.")
         else:
-            st.subheader("📥 Atualizar estoque a partir do arquivo estoque_inicial.csv")
-            st.write(
-                "Use isso depois de substituir o arquivo `estoque_inicial.csv` no repositório "
-                "do GitHub (por exemplo, com os dados de um novo mês da planilha). O sistema "
-                "**não** recarrega esse arquivo sozinho depois da primeira execução — é preciso "
-                "clicar em um dos botões abaixo."
-            )
-
             contagem = db.contar_registros()
             col1, col2, col3 = st.columns(3)
             col1.metric("Itens no banco hoje", contagem["itens"])
@@ -658,45 +652,120 @@ def pagina_configuracoes():
             col3.metric("Movimentações registradas", contagem["movimentos"])
 
             st.markdown("---")
-            st.markdown("##### Opção 1 · Atualizar (recomendado)")
+            st.markdown("##### 📤 Importar um mês da planilha completa (recomendado)")
             st.caption(
-                "Mantém tudo que já foi cadastrado e todo o histórico de entradas/saídas. "
-                "Para itens já existentes, ajusta o saldo para bater com a planilha nova "
-                "(registrando a diferença como um lote de ajuste). Itens novos da planilha "
-                "são cadastrados automaticamente."
+                "Envie o arquivo .xlsx completo (com todas as abas de meses). O sistema "
+                "identifica os meses disponíveis, você escolhe qual importar, e as entradas "
+                "e saídas daquele mês são registradas como movimentações reais - assim elas "
+                "aparecem nos gráficos do Dashboard, no Histórico e nos Relatórios, não só "
+                "o saldo final. Importe os meses em ordem (um de cada vez, do mais antigo "
+                "que faltar para o mais recente) para evitar avisos de lotes não encontrados."
             )
-            if st.button("🔄 Atualizar estoque a partir da planilha", use_container_width=True):
+
+            arquivo_upload = st.file_uploader("Planilha de estoque (.xlsx)", type=["xlsx"])
+
+            if arquivo_upload is not None:
+                arquivo_bytes = arquivo_upload.getvalue()
                 try:
-                    resumo = db.reimportar_estoque_csv(modo="atualizar")
-                    st.success(
-                        f"Concluído! {resumo['itens_criados']} item(ns) novo(s) criado(s), "
-                        f"{resumo['itens_ajustados']} item(ns) com saldo ajustado, "
-                        f"{resumo['itens_sem_alteracao']} sem alteração."
+                    meses = planilha.listar_meses_da_planilha(io.BytesIO(arquivo_bytes))
+                except Exception as e:
+                    meses = []
+                    st.error(f"Não consegui ler esse arquivo: {e}")
+
+                if not meses:
+                    st.warning(
+                        "Não encontrei nenhuma aba com nome de mês (ex: 'Setembro 2026') "
+                        "nesse arquivo."
                     )
+                else:
+                    nomes_meses = [m[0] for m in meses]
+                    mes_escolhido = st.selectbox(
+                        "Mês a importar (mais recente já vem selecionado)",
+                        nomes_meses, index=0
+                    )
+                    confirmar_import = st.button(
+                        f"📥 Importar dados de {mes_escolhido}", use_container_width=True,
+                        type="primary",
+                    )
+                    if confirmar_import:
+                        with st.spinner(f"Importando {mes_escolhido}..."):
+                            try:
+                                resumo = planilha.importar_mes(
+                                    io.BytesIO(arquivo_bytes), mes_escolhido, usuario=usuario["nome"]
+                                )
+                                st.session_state["ultimo_resumo_planilha"] = resumo
+                            except Exception as e:
+                                st.error(f"Erro ao importar: {e}")
+                        st.rerun()
+
+            if "ultimo_resumo_planilha" in st.session_state:
+                r = st.session_state["ultimo_resumo_planilha"]
+                st.success(f"Importação de **{r['mes_label']}** concluída!")
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Itens novos", len(r["itens_novos"]))
+                c2.metric("Lotes criados", r["lotes_criados"])
+                c3.metric("Entradas registradas", r["total_entradas"])
+                c4.metric("Saídas registradas", r["total_saidas"])
+
+                if r["itens_novos"]:
+                    with st.expander(f"Ver os {len(r['itens_novos'])} itens novos cadastrados"):
+                        for nome_item in r["itens_novos"]:
+                            st.write(f"- {nome_item}")
+
+                if r["avisos"]:
+                    with st.expander(f"⚠️ Ver os {len(r['avisos'])} avisos desta importação"):
+                        st.caption(
+                            "Avisos não impedem a importação, só sinalizam inconsistências "
+                            "entre a planilha e o que já estava no sistema, pra você conferir "
+                            "quando puder."
+                        )
+                        for aviso in r["avisos"]:
+                            st.write(f"- {aviso}")
+
+                if st.button("Ok, entendi"):
+                    del st.session_state["ultimo_resumo_planilha"]
                     st.rerun()
-                except FileNotFoundError as e:
-                    st.error(str(e))
 
             st.markdown("---")
-            st.markdown("##### Opção 2 · Substituir tudo (cuidado)")
-            st.caption(
-                "Apaga TODOS os itens, lotes e movimentações (entradas/saídas) já registrados "
-                "e recria o estoque do zero, exatamente como está na planilha. Os usuários de "
-                "login não são afetados. Só use se ainda não houver movimentações importantes "
-                "no sistema."
-            )
-            confirmar_reset = st.checkbox(
-                "Sim, entendo que isso vai apagar todo o histórico de entradas e saídas "
-                "já registrado e quero recomeçar do zero com a planilha atual."
-            )
-            if st.button("🗑️ Substituir tudo pela planilha", use_container_width=True,
-                         disabled=not confirmar_reset):
-                try:
-                    resumo = db.reimportar_estoque_csv(modo="substituir")
-                    st.success(f"Estoque recriado do zero com {resumo['itens_criados']} itens da planilha.")
-                    st.rerun()
-                except FileNotFoundError as e:
-                    st.error(str(e))
+            with st.expander("Outras formas de atualizar (sem o arquivo completo)"):
+                st.markdown("##### Opção · Atualizar a partir do estoque_inicial.csv")
+                st.caption(
+                    "Use isso se você só tem o arquivo estoque_inicial.csv (sem as abas por "
+                    "mês), por exemplo depois de trocá-lo no GitHub. Diferente da opção acima, "
+                    "esse jeito só ajusta o saldo final - não sabe quanto foi entrada e quanto "
+                    "foi saída, então não alimenta os gráficos de movimentação do Dashboard."
+                )
+                if st.button("🔄 Atualizar estoque a partir do estoque_inicial.csv", use_container_width=True):
+                    try:
+                        resumo_csv = db.reimportar_estoque_csv(modo="atualizar")
+                        st.success(
+                            f"Concluído! {resumo_csv['itens_criados']} item(ns) novo(s) criado(s), "
+                            f"{resumo_csv['itens_ajustados']} item(ns) com saldo ajustado, "
+                            f"{resumo_csv['itens_sem_alteracao']} sem alteração."
+                        )
+                        st.rerun()
+                    except FileNotFoundError as e:
+                        st.error(str(e))
+
+                st.markdown("##### Opção · Substituir tudo (cuidado)")
+                st.caption(
+                    "Apaga TODOS os itens, lotes e movimentações (entradas/saídas) já "
+                    "registrados e recria o estoque do zero, a partir do estoque_inicial.csv. "
+                    "Os usuários de login não são afetados. Só use se ainda não houver "
+                    "movimentações importantes no sistema."
+                )
+                confirmar_reset = st.checkbox(
+                    "Sim, entendo que isso vai apagar todo o histórico de entradas e saídas "
+                    "já registrado e quero recomeçar do zero."
+                )
+                if st.button("🗑️ Substituir tudo pelo estoque_inicial.csv", use_container_width=True,
+                             disabled=not confirmar_reset):
+                    try:
+                        resumo_sub = db.reimportar_estoque_csv(modo="substituir")
+                        st.success(f"Estoque recriado do zero com {resumo_sub['itens_criados']} itens.")
+                        st.rerun()
+                    except FileNotFoundError as e:
+                        st.error(str(e))
 
 
 # ---------------------- Roteamento principal ----------------------

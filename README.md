@@ -79,6 +79,21 @@ armazenamento do container.
 - **Configurações / usuários**: 3 níveis de acesso (Administrador, Estoque, Consulta),
   criação de usuários, ativar/desativar e redefinir senha. Cada pessoa tem seu próprio
   login, como combinado (4 pessoas usarão o sistema).
+- **Configurações / importar planilha**: em vez de digitar os meses um por um, o
+  Administrador pode enviar o arquivo .xlsx completo (com todas as abas de meses) em
+  **Configurações → Importar planilha**. O sistema identifica os meses disponíveis pelo
+  nome da aba (ex: "Setembro 2026"), já sugere o mais recente, e ao importar registra a
+  entrada e a saída de cada lote como movimentações reais - diferente de só ajustar o
+  saldo final, isso faz com que os gráficos do Dashboard (Entradas x Saídas por mês,
+  Ranking de consumo, Evolução do estoque) e o Histórico reflitam o que realmente
+  aconteceu naquele mês. Lotes são casados pela validade; quando a planilha não bate
+  com o que já está no sistema (saldo inicial diferente, validade que sumiu de um mês
+  para o outro, mais de um lote sem validade no mesmo mês), a importação continua
+  normalmente mas mostra um aviso para conferência manual - nada é apagado ou
+  sobrescrito sem avisar. Para evitar avisos desnecessários, importe os meses em ordem,
+  um de cada vez, sem pular nenhum. Ainda existe a opção antiga de atualizar só a
+  partir do `estoque_inicial.csv` (sem as abas por mês), mas ela não alimenta os
+  gráficos de movimentação, só ajusta o saldo.
 
 ## Usuários de demonstração (altere as senhas após o primeiro acesso)
 

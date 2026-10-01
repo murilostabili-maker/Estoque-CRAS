@@ -71,12 +71,30 @@ USANDO_POSTGRES = bool(DATABASE_URL)
 if USANDO_POSTGRES:
     import psycopg2
     import psycopg2.extras
+    import psycopg2.pool
 
     _INSERT_RE = re.compile(r"^\s*INSERT\s+INTO", re.IGNORECASE)
 
     def _traduzir(query: str) -> str:
         """Troca os placeholders '?' (estilo SQLite) por '%s' (estilo psycopg2)."""
         return query.replace("?", "%s")
+
+    # Pool de conexões: mantém algumas conexões já abertas e "quentes" com o
+    # Postgres externo, em vez de abrir uma conexão nova (com handshake TLS
+    # completo) a cada consulta. Isso reduz bastante a lentidão perceptível
+    # quando o banco está hospedado longe (Supabase, Neon, etc). O pool é
+    # criado uma única vez por processo e reaproveitado em todas as reruns
+    # do Streamlit.
+    _POOL = None
+
+    def _get_pool():
+        global _POOL
+        if _POOL is None:
+            _POOL = psycopg2.pool.ThreadedConnectionPool(
+                minconn=1, maxconn=10, dsn=DATABASE_URL,
+                cursor_factory=psycopg2.extras.RealDictCursor,
+            )
+        return _POOL
 
     class _PGCursor:
         def __init__(self, cur):
@@ -130,10 +148,18 @@ if USANDO_POSTGRES:
             self._conn.commit()
 
         def close(self):
-            self._conn.close()
+            # Não fecha a conexão de verdade - devolve pro pool para ser
+            # reaproveitada na próxima consulta. O rollback() garante que
+            # nenhuma transação fique "pendurada" (é inofensivo se tudo já
+            # foi commitado antes).
+            try:
+                self._conn.rollback()
+            except Exception:
+                pass
+            _get_pool().putconn(self._conn)
 
     def get_conn():
-        conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+        conn = _get_pool().getconn()
         return _PGConnection(conn)
 
 else:
